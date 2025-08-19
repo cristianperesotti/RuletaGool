@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Ruleta GOOL</title>
+<style>
+  :root{
+    --wheel-max: 400px;
+  }
+  body {
+    font-family: Arial, sans-serif;
+    background: #222;
+    color: #fff;
+    text-align: center;
+    padding: 10px;
+    margin: 0;
+  }
+  #cartel {
+    font-size: clamp(1.2em, 5vw, 2em);
+    padding: 10px 15px;
+    background: #ffcc00;
+    color: #000;
+    border: 4px solid #fff;
+    border-radius: 15px;
+    box-shadow: 0 0 15px #fff, 0 0 25px #ff0, 0 0 40px #f00;
+    animation: parpadeo 1s infinite;
+    margin-bottom: 15px;
+    display: inline-block;
+  }
+  @keyframes parpadeo {
+    0%,100% { box-shadow: 0 0 15px #fff, 0 0 25px #ff0, 0 0 40px #f00; }
+    50%     { box-shadow: 0 0 15px #fff, 0 0 25px #0ff, 0 0 40px #0f0; }
+  }
+  #ruletaContainer {
+    position: relative;
+    width: 90vw;
+    max-width: calc(var(--wheel-max) + 60px);
+    margin: auto;
+  }
+  #ruleta {
+    width: 90vw;
+    max-width: var(--wheel-max);
+    aspect-ratio: 1/1;
+    border-radius: 50%;
+    border: 6px solid #fff;
+    overflow: hidden;
+    transition: transform 4s ease-out;
+    margin: auto;
+    position: relative;
+    z-index: 2;
+  }
+  #svgWheel {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  #flecha {
+    position: absolute;
+    bottom: -5%;
+    left: 50%;
+    transform: translate(-50%, 0) rotate(180deg); /* flecha apuntando hacia abajo */
+    width: 0; height: 0;
+    border-left: 15px solid transparent;
+    border-right: 15px solid transparent;
+    border-top: 25px solid red;
+    z-index: 3;
+    filter: drop-shadow(0 0 6px red);
+  }
+  #btnGirar {
+    margin-top: 15px;
+    padding: 12px 24px;
+    font-size: clamp(1em, 4vw, 1.2em);
+    cursor: pointer;
+    border-radius: 8px;
+    border: none;
+    background: #007BFF;
+    color: white;
+  }
+  #btnGirar:disabled {
+    background: #555;
+    cursor: not-allowed;
+  }
+  #premioFinal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.95);
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    z-index: 999;
+    padding: 20px;
+    text-align: center;
+  }
+  #btnReclamar {
+    margin-top: 25px; 
+    padding: 14px 28px; 
+    font-size: clamp(1em, 5vw, 1.3em);
+    background:#25D366; 
+    color:white; 
+    border:none; 
+    border-radius:10px; 
+    cursor:pointer;
+    width: auto;
+    max-width: 90%;
+  }
+  .confeti {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    animation: caer 5s linear forwards;
+  }
+  @keyframes caer {
+    to { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+  }
+
+  /* 💡 Luces LED alrededor (constantes, sin parpadeo) */
+  .luces {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: calc(var(--wheel-max) + 60px);
+    height: calc(var(--wheel-max) + 60px);
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .luces span {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    transform-origin: center;
+    opacity: 1;
+    box-shadow: 0 0 10px currentColor, 0 0 18px currentColor;
+  }
+</style>
+</head>
+<body>
+
+<div id="cartel">🎪 Probá tu suerte con GOOL 🎪</div>
+
+<div id="ruletaContainer">
+  <div class="luces" id="luces"></div>
+  <div id="flecha"></div>
+  <div id="ruleta">
+    <svg id="svgWheel" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg"></svg>
+  </div>
+</div>
+
+<button id="btnGirar" onclick="girar()">🎡 Girar</button>
+
+<div id="premioFinal">
+  <div style="font-size:clamp(1.5em,6vw,2.2em); color:yellow;">✨ ¡FELICIDADES! ✨</div>
+  <div id="textoPremio" style="margin-top:20px; font-size:clamp(1em,5vw,1.5em);"></div>
+  <button id="btnReclamar">📲 Reclamar premio</button>
+</div>
+
+<audio id="sonidoGiro" src="https://www.fesliyanstudios.com/play-mp3/4386" preload="auto"></audio>
+
+<script>
+const ruleta = document.getElementById('ruleta');
+const svg = document.getElementById('svgWheel');
+const sonidoGiro = document.getElementById("sonidoGiro");
+const btnGirar = document.getElementById("btnGirar");
+const SVG_NS = "http://www.w3.org/2000/svg";
+const XLINK_NS = "http://www.w3.org/1999/xlink";
+const CX = 200, CY = 200, R = 190;
+let angulo = 0;
+let yaJugo = false; // 🔒 bloqueo
+
+const premios = [
+  "10% de descuento","Seguí participando","5% de descuento","Seguí participando","10% de descuento",
+  "10% de descuento","Seguí participando","5% de descuento","Seguí participando","10% de descuento",
+];
+const colores = ["#FFD400","#111111","#FFFFFF","#7A7A7A","#FFD400","#111111","#FFFFFF","#7A7A7A","#FFD400","#111111"];
+
+function fontSizeFor(label){
+  const len = label.length;
+  if (len > 26) return 10;
+  if (len > 22) return 11;
+  if (len > 18) return 12;
+  if (len > 14) return 13;
+  return 14;
+}
+
+function degToRad(d){ return (d * Math.PI) / 180; }
+function polar(cx,cy,r,ang){
+  const a = degToRad(ang);
+  return { x: cx + r*Math.cos(a), y: cy + r*Math.sin(a) };
+}
+function sectorPath(cx,cy,r,start,end){
+  const s = polar(cx,cy,r,start);
+  const e = polar(cx,cy,r,end);
+  const large = (end - start) <= 180 ? 0 : 1;
+  return `M ${cx} ${cy} L ${s.x} ${s.y} A ${r} ${r} 0 ${large} 1 ${e.x} ${e.y} Z`;
+}
+function textColorFor(bg){
+  return (bg === "#111111" || bg === "#7A7A7A") ? "#FFFFFF" : "#000000";
+}
+
+function dibujarRuleta(){
+  svg.innerHTML = "";
+  const defs = document.createElementNS(SVG_NS,"defs");
+  svg.appendChild(defs);
+
+  const n = premios.length;
+  const sectorAng = 360 / n;
+  let start = -90; // primer sector arriba
+
+  for (let i=0;i<n;i++){
+    const end = start + sectorAng;
+    const mid = start + sectorAng/2;
+
+    const path = document.createElementNS(SVG_NS,"path");
+    path.setAttribute("d", sectorPath(CX, CY, R, start, end));
+    path.setAttribute("fill", colores[i % colores.length]);
+    svg.appendChild(path);
+
+    const rInner = R * 0.20;   
+    const rOuter = R * 0.80;   
+    const p1 = polar(CX, CY, rInner, mid);
+    const p2 = polar(CX, CY, rOuter, mid);
+
+    const rPath = document.createElementNS(SVG_NS,"path");
+    rPath.setAttribute("id", `r-${i}`);
+    rPath.setAttribute("d", `M ${p1.x} ${p1.y} L ${p2.x} ${p2.y}`);
+    rPath.setAttribute("fill","none");
+    defs.appendChild(rPath);
+
+    const text = document.createElementNS(SVG_NS,"text");
+    text.setAttribute("fill", textColorFor(colores[i % colores.length]));
+    text.setAttribute("font-weight","bold");
+    text.setAttribute("font-size", fontSizeFor(premios[i]));
+    text.setAttribute("text-anchor","start");
+    text.setAttribute("dominant-baseline","middle");
+
+    const tp = document.createElementNS(SVG_NS,"textPath");
+    tp.setAttributeNS(null, "href", `#r-${i}`);
+    tp.setAttributeNS(XLINK_NS, "xlink:href", `#r-${i}`);
+    tp.setAttribute("startOffset","0%");
+    tp.textContent = premios[i];
+
+    text.appendChild(tp);
+    svg.appendChild(text);
+
+    start = end;
+  }
+}
+dibujarRuleta();
+
+/* 🔵 Luces alrededor */
+function generarLuces(){
+  const luces = document.getElementById("luces");
+  const total = 40;
+  const radio = (parseInt(getComputedStyle(ruleta).width) / 2) + 25; 
+
+  for(let i=0;i<total;i++){
+    const ang = (i/total) * 360;
+    const span = document.createElement("span");
+    span.style.transform = `rotate(${ang}deg) translate(${radio}px)`;
+    const color = `hsl(${i*(360/total)}, 100%, 60%)`;
+    span.style.color = color;
+    span.style.background = color;
+    luces.appendChild(span);
+  }
+}
+generarLuces();
+
+function girar(){
+  if (yaJugo) return; // 🔒 bloqueado
+  yaJugo = true;
+  btnGirar.disabled = true;
+  try { sonidoGiro.currentTime = 0; sonidoGiro.play(); } catch(e){}
+
+  const extra = Math.floor(Math.random()*360);
+  angulo += 1800 + extra;
+  ruleta.style.transform = `rotate(${angulo}deg)`;
+  setTimeout(()=>{
+    const premio = calcularPremio( (angulo % 360 + 360) % 360 );
+    mostrarPremio(premio);
+  }, 4200);
+}
+
+function calcularPremio(ang){
+  const n = premios.length;
+  const sectorAng = 360 / n;
+  const pointerAngle = 90;   // flecha abajo
+  const startAngle   = -90;  // primer sector arriba
+  const rotation = ang % 360;
+  const relativo = ((pointerAngle - rotation - startAngle) % 360 + 360) % 360;
+  return premios[Math.floor(relativo / sectorAng)];
+}
+
+function mostrarPremio(p){
+  document.getElementById('textoPremio').innerText = p;
+  const pantalla = document.getElementById('premioFinal');
+  pantalla.style.display = 'flex';
+
+  const btnReclamar = document.getElementById('btnReclamar');
+  const numero = "5493541707888";
+  const mensaje = `Quiero reclamar mi premio de ${p}`;
+
+  btnReclamar.onclick = () => {
+    window.open(`https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`, "_blank");
+  };
+
+  lanzarConfeti();
+}
+
+function lanzarConfeti(){
+  for(let i=0;i<80;i++){
+    const c = document.createElement('div');
+    c.classList.add('confeti');
+    document.body.appendChild(c);
+    c.style.left = Math.random() * window.innerWidth + 'px';
+    c.style.top = '-10px';
+    c.style.backgroundColor = `hsl(${Math.random()*360},100%,50%)`;
+    c.style.animationDuration = (Math.random()*3 + 2) + 's';
+    setTimeout(()=>c.remove(),5000);
+  }
+}
+</script>
+
+</body>
+</html>
